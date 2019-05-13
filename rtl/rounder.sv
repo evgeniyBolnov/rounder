@@ -16,9 +16,10 @@ module rounder #(
   output                    avo_valid
 );
 
-  localparam ADDR_SIZE    = $clog2(DEPTH)                            ;
-  localparam ACTUAL_WIDTH = (COMPLEX) ? INPUT_WIDTH / 2 : INPUT_WIDTH;
-  localparam IN_SIZE      = $clog2(ACTUAL_WIDTH)                     ;
+  localparam ADDR_SIZE     = $clog2(DEPTH)                              ;
+  localparam ACTUAL_INPUT  = (COMPLEX) ? INPUT_WIDTH / 2  : INPUT_WIDTH ;
+  localparam ACTUAL_OUTPUT = (COMPLEX) ? OUTPUT_WIDTH / 2 : OUTPUT_WIDTH;
+  localparam IN_SIZE       = $clog2(ACTUAL_INPUT)                       ;
 
 
   enum logic[2:0]{
@@ -39,10 +40,10 @@ module rounder #(
   logic                    avo_eop_rg  ;
   logic                    avo_valid_rg;
 
-  logic [ACTUAL_WIDTH-1:0] max      ;
+  logic [ACTUAL_INPUT-1:0] max      ;
   logic [     IN_SIZE-1:0] msb      ;
   logic [   ADDR_SIZE-1:0] cnt_rd_sl;
-  logic [ACTUAL_WIDTH-1:0] abs_val  ;
+  logic [ACTUAL_INPUT-1:0] abs_val  ;
 
   int i;
 
@@ -67,7 +68,8 @@ module rounder #(
 generate 
 
     if (COMPLEX) begin
-      logic [ACTUAL_WIDTH-1:0] abs_re, abs_im;
+      logic [ACTUAL_INPUT-1:0] abs_re, abs_im;
+      logic [ INPUT_WIDTH-1:0] read_rg;
 
       assign abs_val = (abs_re > abs_im) ? abs_re : abs_im;
 
@@ -77,35 +79,41 @@ generate
           abs_im <= '0;
         end
         else begin
-          abs_re <= (avi_data[ACTUAL_WIDTH*2-1]) ? -avi_data[ACTUAL_WIDTH +: ACTUAL_WIDTH]: avi_data[ACTUAL_WIDTH +: ACTUAL_WIDTH];
-          abs_im <= (avi_data[ACTUAL_WIDTH-1])   ? -avi_data[           0 +: ACTUAL_WIDTH]: avi_data[           0 +: ACTUAL_WIDTH];
+          abs_re <= (avi_data[ACTUAL_INPUT*2-1]) ? -avi_data[ACTUAL_INPUT +: ACTUAL_INPUT]: avi_data[ACTUAL_INPUT +: ACTUAL_INPUT];
+          abs_im <= (avi_data[ACTUAL_INPUT-1])   ? -avi_data[           0 +: ACTUAL_INPUT]: avi_data[           0 +: ACTUAL_INPUT];
         end
 
-    end
+        always_ff @(posedge clk)
+        if (state == OUT && cnt_rd < DEPTH)
+          read_rg <= ram[cnt_rd_sl];
+
+        assign avo_data_rg = {read_rg[msb+1'b1+ACTUAL_INPUT -: ACTUAL_OUTPUT], read_rg[msb+1'b1 -: ACTUAL_OUTPUT]};
+
+      end
     else begin
 
       always_ff @(posedge clk or posedge rst)
         if (rst)
           abs_val <= '0;
         else
-          abs_val <= (avi_data[ACTUAL_WIDTH-1]) ? -avi_data : avi_data;
+          abs_val <= (avi_data[ACTUAL_INPUT-1]) ? -avi_data : avi_data;
+
+      // Выходное "обрезание"
+      always_ff @(posedge clk)
+        if (state == OUT && cnt_rd < DEPTH)
+          avo_data_rg <= ram[cnt_rd_sl][msb+1'b1 -: ACTUAL_OUTPUT];
 
     end
 
 endgenerate
 
-  // Выходное "обрезание"
-  always_ff @(posedge clk)
-    if (state == OUT && cnt_rd < DEPTH)
-      avo_data_rg <= ram[cnt_rd_sl][msb+1'b1 -: OUTPUT_WIDTH];
-
   // Поиск значащего разряда TODO: подумать над улучшением
   always_ff @(posedge clk or posedge rst) begin
     if (rst)
-      msb <= OUTPUT_WIDTH;
+      msb <= ACTUAL_OUTPUT;
     else
       if (state == FIND_BIT)
-        for (i = OUTPUT_WIDTH; i < ACTUAL_WIDTH; i = i + 1)
+        for (i = ACTUAL_OUTPUT; i < ACTUAL_INPUT; i = i + 1)
           if (max[i])
             msb <= i;
   end
