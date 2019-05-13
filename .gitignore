@@ -1,0 +1,6 @@
+*.sublime*
+*.bak
+
+/quartus
+/sim
+/scripts
